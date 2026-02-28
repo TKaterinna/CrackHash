@@ -1,0 +1,74 @@
+
+services:
+  # Databases
+
+  # manager-db:
+  #   image: postgres:15
+  #   container_name: profile_db
+  #   environment:
+  #     POSTGRES_USER: ${PROFILE_POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${PROFILE_POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${PROFILE_POSTGRES_DB}
+  #   ports:
+  #     - "${PROFILE_DB_PORT}:${INNER_DB_PORT}"
+  #   volumes:
+  #     - profile_data:/var/lib/postgresql/data
+  #   networks:
+  #     - reverie-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${PROFILE_POSTGRES_USER} -d ${PROFILE_POSTGRES_DB} -h localhost || exit 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 25
+
+
+  # Backend
+
+  manager-service:
+    build:
+      context: ./manager
+      dockerfile: Dockerfile
+    container_name: manager
+    restart: unless-stopped
+    environment:
+      MANAGER_PORT: ${MANAGER_PORT}
+      WORKER_PORT: ${WORKER_PORT}
+    # depends_on:
+    #   manager-db:
+    #     condition: service_healthy
+    ports:
+      - "${MANAGER_PORT}:${INNER_SERVICE_PORT}"
+    networks:
+      - reverie-network
+    #healthcheck:
+    #  test: ["CMD-SHELL", "wget --spider --quiet http://localhost:${INNER_SERVICE_PORT}/healthz || exit 1"]
+    #  interval: 5s
+    #  timeout: 5s
+    #  retries: 10
+    #  start_period: 5s
+
+  worker-service:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: worker
+    restart: unless-stopped
+    # environment:
+    #   MANAGER_PORT: ${MANAGER_PORT}
+    # depends_on:
+    #   worker-db:
+    #     condition: service_healthy
+    ports:
+      - "${WORKER_PORT}:${INNER_SERVICE_PORT}"
+    networks:
+      - reverie-network
+    #healthcheck:
+    #  test: ["CMD-SHELL", "wget --spider --quiet http://localhost:${INNER_SERVICE_PORT}/healthz || exit 1"]
+    #  interval: 5s
+    #  timeout: 5s
+    #  retries: 10
+    #  start_period: 5s
+
+networks:
+  reverie-network:
+    driver: bridge
