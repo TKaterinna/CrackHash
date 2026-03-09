@@ -9,18 +9,18 @@ import (
 
 type RequestStatus struct {
 	// Id uuid.UUID key in map
-	Status string
-	Data   []string
+	Status  string
+	Results []string
 }
 
 type WorkerTasks struct {
-	// WorkerId uuid.UUID key in map
+	// TaskId uuid.UUID key in map
 	RequestId  uuid.UUID
-	PartNumber int
-	PartCount  int
+	StartIndex int64
+	Count      int64
 	Alphabet   string
-	MaxLen     int
-	CheckHash  string
+	MaxLen     int64
+	TargetHash string
 }
 
 type TaskRepo struct {
@@ -55,14 +55,14 @@ func (r *TaskRepo) GetStatus(id uuid.UUID) (string, []string, error) {
 
 	entry := r.cacheStatus[id]
 
-	var data []string
+	var results []string
 	if entry.Status == models.StatusREADY {
-		data = entry.Data
+		results = entry.Results
 	} else {
-		data = nil
+		results = nil
 	}
 
-	return entry.Status, data, nil
+	return entry.Status, results, nil
 }
 
 func (r *TaskRepo) UpdateResult(id uuid.UUID, results []string, isEnd bool) error {
@@ -70,7 +70,7 @@ func (r *TaskRepo) UpdateResult(id uuid.UUID, results []string, isEnd bool) erro
 	defer r.mxStatus.Unlock()
 
 	requestStatus := r.cacheStatus[id]
-	requestStatus.Data = append(requestStatus.Data, results...)
+	requestStatus.Results = append(requestStatus.Results, results...)
 
 	if isEnd {
 		requestStatus.Status = models.StatusREADY

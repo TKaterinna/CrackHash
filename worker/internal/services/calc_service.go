@@ -67,6 +67,7 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 
 	if wg, err = NewWordGenerator(req); err != nil {
 		res := &models.CrackTaskResult{
+			TaskId:    req.TaskId,
 			RequestId: req.RequestId,
 			Results:   nil,
 			Status:    models.StatusERROR,
@@ -86,14 +87,14 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 
 		log.Println("Check word = ", word)
 
-		if s.checkWord(word, req.CheckHash) {
+		if s.checkWord(word, req.TargetHash) {
 			log.Println("CORRECT WORD: ", word)
 			words = append(words, word)
-			break
 		}
 	}
 
 	res := &models.CrackTaskResult{
+		TaskId:    req.TaskId,
 		RequestId: req.RequestId,
 		Results:   words,
 		Status:    models.StatusDONE,

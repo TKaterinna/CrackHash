@@ -1,10 +1,16 @@
 package config
 
-import "os"
+import (
+	"log"
+	"os"
+	"strconv"
+)
 
 type Config struct {
-	ManagerPort string
-	WorkerPort  string
+	ManagerPort  string
+	WorkersCount int64
+	WorkersPort  []string
+	CombForTask  int64
 }
 
 func NewConfig() *Config {
@@ -16,16 +22,47 @@ func NewConfig() *Config {
 
 	managerPort = ":" + managerPort
 
-	workerPort := os.Getenv("WORKER_PORT")
+	workersCountStr := os.Getenv("WORKERS_COUNT")
+	var workersCount int
+	var err error
 
-	if len(workerPort) == 0 {
-		workerPort = "8081"
+	if len(workersCountStr) == 0 {
+		log.Println("aaaaaaaaaaaaaaaaaaaaa WORKERS_COUNT empty")
+		workersCount = 1
+	} else {
+		if workersCount, err = strconv.Atoi(workersCountStr); err != nil {
+			workersCount = 1
+		}
 	}
 
-	workerPort = ":" + workerPort
+	var workersPort []string
+	for i := range workersCount {
+		workerPort := os.Getenv("WORKER_PORT_" + strconv.Itoa(i))
+
+		if len(workerPort) == 0 {
+			workerPort = "8081"
+		}
+
+		workerPort = ":" + workerPort
+
+		workersPort = append(workersPort, workerPort)
+	}
+
+	combForTaskStr := os.Getenv("COMB_FOR_TASK")
+	var combForTask int
+
+	if len(combForTaskStr) == 0 {
+		combForTask = 100000
+	} else {
+		if combForTask, err = strconv.Atoi(combForTaskStr); err != nil {
+			combForTask = 100000
+		}
+	}
 
 	return &Config{
-		ManagerPort: managerPort,
-		WorkerPort:  workerPort,
+		ManagerPort:  managerPort,
+		WorkersCount: int64(workersCount),
+		WorkersPort:  workersPort,
+		CombForTask:  int64(combForTask),
 	}
 }

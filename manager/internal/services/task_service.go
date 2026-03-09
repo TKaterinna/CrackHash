@@ -1,22 +1,24 @@
 package services
 
 import (
+	"math"
+
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
 	"github.com/TKaterinna/CrackHash/manager/internal/repo"
 	"github.com/google/uuid"
 )
 
 type TaskService struct {
-	repo               *repo.TaskRepo
-	workerCountService *WorkerCountService
-	taskSender         *TaskSender
+	repo        *repo.TaskRepo
+	taskSender  *TaskSender
+	CombForTask int64
 }
 
-func NewTaskService(repo *repo.TaskRepo, workerCountService *WorkerCountService, taskSender *TaskSender) *TaskService {
+func NewTaskService(repo *repo.TaskRepo, taskSender *TaskSender, combForTask int64) *TaskService {
 	return &TaskService{
-		repo:               repo,
-		workerCountService: workerCountService,
-		taskSender:         taskSender,
+		repo:        repo,
+		taskSender:  taskSender,
+		CombForTask: combForTask,
 	}
 }
 
@@ -39,36 +41,46 @@ func (s *TaskService) Crack(req *models.HashCrackRequest) (uuid.UUID, error) {
 func (s *TaskService) CreateTasks(req *models.HashCrackRequest, requestId uuid.UUID) []*models.CrackTaskRequest {
 	tasks := make([]*models.CrackTaskRequest, 0)
 
-	partCount := s.workerCountService.GetWorkerCount()
-	for i := range partCount {
-		task := s.CreateTask(req, requestId, i, partCount)
+	wordsCount := s.WordsCount(int64(len(req.Alphabet)), req.MaxLength)
+	partsCount := wordsCount / s.CombForTask
+	if wordsCount%s.CombForTask != 0 {
+		partsCount += 1
+	}
+
+	for i := range partsCount {
+		task := s.CreateTask(req, requestId, i)
 		tasks = append(tasks, task)
 	}
 
 	return tasks
 }
 
-func (s *TaskService) CreateTask(req *models.HashCrackRequest, requestId uuid.UUID, partNumber int, partCount int) *models.CrackTaskRequest {
+func (s *TaskService) WordsCount(alphabetLen int64, maxLen int64) int64 {
+	return int64(float64(alphabetLen) * (math.Pow(float64(alphabetLen), float64(maxLen)) - 1) / float64(alphabetLen-1))
+}
+
+func (s *TaskService) CreateTask(req *models.HashCrackRequest, requestId uuid.UUID, partNumber int64) *models.CrackTaskRequest {
 	return &models.CrackTaskRequest{
+		TaskId:     uuid.New(),
 		RequestId:  requestId,
-		PartNumber: partNumber,
-		PartCount:  partCount,
+		StartIndex: partNumber * s.CombForTask,
+		Count:      s.CombForTask,
 		MaxLen:     req.MaxLength,
-		CheckHash:  req.Hash,
+		TargetHash: req.Hash,
 		Alphabet:   req.Alphabet,
 	}
 }
 
 func (s *TaskService) GetStatus(requestId uuid.UUID) (string, []string, error) {
 	var status string
-	var data []string
+	var results []string
 	var err error
 
-	if status, data, err = s.repo.GetStatus(requestId); err != nil {
+	if status, results, err = s.repo.GetStatus(requestId); err != nil {
 		return "", nil, err
 	}
 
-	return status, data, nil
+	return status, results, nil
 }
 
 func (s *TaskService) UpdateResult(req *models.CrackTaskResult) error {

@@ -16,7 +16,7 @@ func NewConfig() *Config {
 
 	managerPort = ":" + managerPort
 
-	workerPort := os.Getenv("WORKER_PORT")
+	workerPort := os.Getenv("WWORKER_PORT")
 
 	if len(workerPort) == 0 {
 		workerPort = "8081"

@@ -3,11 +3,12 @@ package models
 import "github.com/google/uuid"
 
 type CrackTaskRequest struct {
+	TaskId     uuid.UUID `json:"taskId"`
 	RequestId  uuid.UUID `json:"requestId"`
-	PartNumber int       `json:"partNumber"`
-	PartCount  int       `json:"partCount"`
-	MaxLen     int       `json:"maxLen"`
-	CheckHash  string    `json:"checkHash"`
+	StartIndex int64     `json:"startIndex"`
+	Count      int64     `json:"count"`
+	TargetHash string    `json:"targetHash"`
+	MaxLen     int64     `json:"maxLen"`
 	Alphabet   string    `json:"alphabet"`
 }
 
@@ -16,6 +17,7 @@ type GetResultRequest struct {
 }
 
 type CrackTaskResult struct {
+	TaskId    uuid.UUID `json:"taskId"`
 	RequestId uuid.UUID `json:"requestId"`
 	Results   []string  `json:"results,omitempty"`
 	Status    string    `json:"status"`

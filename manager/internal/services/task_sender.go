@@ -5,26 +5,38 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
 )
 
 type TaskSender struct {
-	client    *http.Client
-	workerUrl string
+	client       *http.Client
+	workersUrl   []string
+	workersCount int64
 }
 
-func NewTaskSender(workerPort string) *TaskSender {
+func NewTaskSender(workersCount int64, workersPort []string) *TaskSender {
+	var workersUrl []string
+
+	for i := range workersCount {
+		workersUrl = append(workersUrl, "http://worker"+strconv.Itoa(int(i))+workersPort[i]+"/internal/api/worker/hash/crack/task")
+	}
+	log.Println(workersUrl)
+
 	return &TaskSender{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		workerUrl: "http://worker" + workerPort + "/internal/api/worker/hash/crack/task",
+		workersUrl:   workersUrl,
+		workersCount: workersCount,
 	}
 }
 
 func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
+	i := 0
+
 	for _, task := range tasks {
 		taskJSON, err := json.Marshal(task)
 		if err != nil {
@@ -32,8 +44,9 @@ func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
 			return err
 		}
 
+		log.Println("SEND ", t.workersUrl[i])
 		resp, err := t.client.Post(
-			t.workerUrl,
+			t.workersUrl[i],
 			"application/json",
 			bytes.NewBuffer(taskJSON),
 		)
@@ -47,6 +60,9 @@ func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			log.Printf("Received non-success status %d for task %+v", resp.StatusCode, task)
 		}
+
+		i += 1
+		i = i % int(t.workersCount)
 	}
 
 	return nil

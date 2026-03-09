@@ -32,7 +32,10 @@ services:
     restart: unless-stopped
     environment:
       MANAGER_PORT: ${MANAGER_PORT}
-      WORKER_PORT: ${WORKER_PORT}
+      WORKERS_COUNT: ${WORKERS_COUNT}
+      WORKER_PORT_0: ${WORKER_PORT_0}
+      WORKER_PORT_1: ${WORKER_PORT_1}
+      COMB_FOR_TASK: ${COMB_FOR_TASK}
     # depends_on:
     #   manager-db:
     #     condition: service_healthy
@@ -47,19 +50,41 @@ services:
     #  retries: 10
     #  start_period: 5s
 
-  worker-service:
+  worker-service1:
     build:
       context: ./worker
       dockerfile: Dockerfile
-    container_name: worker
+    container_name: worker0
     restart: unless-stopped
-    # environment:
-    #   MANAGER_PORT: ${MANAGER_PORT}
+    environment:
+      WWORKER_PORT: ${WORKER_PORT_0}
     # depends_on:
     #   worker-db:
     #     condition: service_healthy
     ports:
-      - "${WORKER_PORT}:${INNER_SERVICE_PORT}"
+      - "${WORKER_PORT_0}:${INNER_SERVICE_PORT}"
+    networks:
+      - reverie-network
+    #healthcheck:
+    #  test: ["CMD-SHELL", "wget --spider --quiet http://localhost:${INNER_SERVICE_PORT}/healthz || exit 1"]
+    #  interval: 5s
+    #  timeout: 5s
+    #  retries: 10
+    #  start_period: 5s
+
+  worker-service2:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: worker1
+    restart: unless-stopped
+    environment:
+      WWORKER_PORT: ${WORKER_PORT_1}
+    # depends_on:
+    #   worker-db:
+    #     condition: service_healthy
+    ports:
+      - "${WORKER_PORT_1}:${INNER_SERVICE_PORT}"
     networks:
       - reverie-network
     #healthcheck:

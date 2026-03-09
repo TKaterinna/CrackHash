@@ -43,7 +43,7 @@ func (h *TaskHandler) Status(ctx *gin.Context) {
 	var requestId uuid.UUID
 	var err error
 	var status string
-	var data []string
+	var results []string
 	var response models.HashStatusResponse
 
 	strRequestId := ctx.Query("requestId")
@@ -58,19 +58,28 @@ func (h *TaskHandler) Status(ctx *gin.Context) {
 		return
 	}
 
-	if status, data, err = h.service.GetStatus(requestId); err != nil {
+	if status, results, err = h.service.GetStatus(requestId); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if len(data) == 0 {
-		response = models.HashStatusResponse{
-			Status: status,
+	if len(results) == 0 {
+		if status == models.StatusREADY {
+			response = models.HashStatusResponse{
+				Status:  status,
+				Results: &[]string{},
+			}
+		} else {
+			response = models.HashStatusResponse{
+				Status:  status,
+				Results: nil,
+			}
 		}
+
 	} else {
 		response = models.HashStatusResponse{
-			Status: status,
-			Data:   data,
+			Status:  status,
+			Results: &results,
 		}
 	}
 

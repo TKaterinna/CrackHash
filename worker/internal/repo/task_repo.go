@@ -8,9 +8,9 @@ import (
 
 type CalcTasks struct {
 	// RequestId  uuid.UUID key in map
-	PartNumber int
-	PartCount  int
-	MaxLen     int
+	PartNumber int64
+	PartCount  int64
+	MaxLen     int64
 	checkHash  string
 	Data       string
 }
@@ -27,7 +27,7 @@ func NewCalcRepo() *CalcRepo {
 	}
 }
 
-func (r *CalcRepo) SaveTask(id uuid.UUID, partNumber int, partCount int, maxLen int, checkHash string) error {
+func (r *CalcRepo) SaveTask(id uuid.UUID, partNumber int64, partCount int64, maxLen int64, checkHash string) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 

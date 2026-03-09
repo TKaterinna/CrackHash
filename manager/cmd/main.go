@@ -16,9 +16,8 @@ func main() {
 	router := gin.Default()
 
 	taskRepo := repo.NewTaskRepo()
-	workerCountService := services.NewWorkerCountService()
-	taskSender := services.NewTaskSender(config.WorkerPort)
-	taskService := services.NewTaskService(taskRepo, workerCountService, taskSender)
+	taskSender := services.NewTaskSender(config.WorkersCount, config.WorkersPort)
+	taskService := services.NewTaskService(taskRepo, taskSender, config.CombForTask)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
 	routers.NewTaskRouter(router, taskHandler)

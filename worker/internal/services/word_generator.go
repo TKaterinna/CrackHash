@@ -2,31 +2,30 @@ package services
 
 import (
 	"fmt"
-	"math/big"
+	"math"
 
 	"github.com/TKaterinna/CrackHash/worker/internal/models"
 )
 
 type WordGenerator struct {
 	alphabet      []rune
-	alphabetLen   int
-	maxWordLen    int
-	startIndex    *big.Int
-	endIndex      *big.Int
-	currentIndex  *big.Int
-	lastLen       int
-	lastLenCount  *big.Int
-	lastWordCount *big.Int
-	curWordCount  *big.Int
+	alphabetLen   int64
+	startIndex    int64
+	endIndex      int64
+	currentIndex  int64
+	lastLen       int64
+	lastLenCount  int64
+	lastWordCount int64
+	curWordCount  int64
 }
 
 // NewWordGenerator создает новый генератор слов для заданной задачи
 func NewWordGenerator(task *models.CrackTaskRequest) (*WordGenerator, error) {
-	if task.PartNumber < 0 || task.PartNumber >= task.PartCount {
-		return nil, fmt.Errorf("invalid part number: %d (must be 0 <= partNumber < partCount)", task.PartNumber)
+	if task.Count <= 0 {
+		return nil, fmt.Errorf("count must be positive")
 	}
-	if task.PartCount <= 0 {
-		return nil, fmt.Errorf("part count must be positive")
+	if task.StartIndex < 0 {
+		return nil, fmt.Errorf("start index must be non-negative")
 	}
 	if len(task.Alphabet) == 0 {
 		return nil, fmt.Errorf("alphabet cannot be empty")
@@ -36,83 +35,50 @@ func NewWordGenerator(task *models.CrackTaskRequest) (*WordGenerator, error) {
 	}
 
 	alphabet := []rune(task.Alphabet)
-	alphabetLen := len(alphabet)
+	alphabetLen := int64(len(alphabet))
 
-	// Вычисляем общее количество слов
-	totalWords := calculateTotalWords(alphabetLen, task.MaxLen)
+	startIndex := task.StartIndex
+	endIndex := startIndex + task.Count
 
-	// Вычисляем диапазон для этого воркера
-	partSize := new(big.Int).Div(totalWords, big.NewInt(int64(task.PartCount)))
-	remainder := new(big.Int).Mod(totalWords, big.NewInt(int64(task.PartCount)))
-
-	startIndex := new(big.Int).Mul(partSize, big.NewInt(int64(task.PartNumber)))
-	if int64(task.PartNumber) < remainder.Int64() {
-		startIndex.Add(startIndex, big.NewInt(int64(task.PartNumber)))
-	} else {
-		startIndex.Add(startIndex, remainder)
-	}
-
-	endIndex := new(big.Int).Mul(partSize, big.NewInt(int64(task.PartNumber+1)))
-	if int64(task.PartNumber+1) < remainder.Int64() {
-		endIndex.Add(endIndex, big.NewInt(int64(task.PartNumber+1)))
-	} else {
-		endIndex.Add(endIndex, remainder)
-	}
-
-	// Последний воркер получает остаток
-	if task.PartNumber == task.PartCount-1 {
-		endIndex.Set(totalWords)
+	wordsCount := WordsCount(alphabetLen, task.MaxLen)
+	if endIndex > wordsCount {
+		endIndex = wordsCount
 	}
 
 	return &WordGenerator{
 		alphabet:      alphabet,
 		alphabetLen:   alphabetLen,
-		maxWordLen:    task.MaxLen,
 		startIndex:    startIndex,
 		endIndex:      endIndex,
-		currentIndex:  new(big.Int).Set(startIndex),
+		currentIndex:  startIndex,
 		lastLen:       1,
-		lastLenCount:  big.NewInt(int64(alphabetLen)),
-		lastWordCount: big.NewInt(0),
-		curWordCount:  big.NewInt(int64(alphabetLen)),
+		lastLenCount:  alphabetLen,
+		lastWordCount: 0,
+		curWordCount:  alphabetLen,
 	}, nil
 }
 
-// calculateTotalWords вычисляет общее количество слов
-// Формула: sum_{i=1}^{maxLen} alphabetLen^i = (alphabetLen^(maxLen+1) - alphabetLen) / (alphabetLen - 1)
-func calculateTotalWords(alphabetLen, maxWordLen int) *big.Int {
-	if alphabetLen == 1 {
-		return big.NewInt(int64(maxWordLen))
-	}
-
-	base := big.NewInt(int64(alphabetLen))
-	exp := big.NewInt(int64(maxWordLen + 1))
-	numerator := new(big.Int).Exp(base, exp, nil)
-	numerator.Sub(numerator, base)
-
-	denominator := big.NewInt(int64(alphabetLen - 1))
-	result := new(big.Int).Div(numerator, denominator)
-
-	return result
+func WordsCount(alphabetLen int64, maxLen int64) int64 {
+	return int64(float64(alphabetLen) * (math.Pow(float64(alphabetLen), float64(maxLen)) - 1) / float64(alphabetLen-1))
 }
 
-func (wg *WordGenerator) indexToWord(globalIdx *big.Int) string {
-	N := big.NewInt(int64(wg.alphabetLen))
+func (wg *WordGenerator) indexToWord(globalIdx int64) string {
+	N := int64(wg.alphabetLen)
 
-	for globalIdx.Cmp(wg.curWordCount) >= 0 { // = потому что нумерация с 0
-		wg.lastWordCount.Set(wg.curWordCount)
-		wg.curWordCount.Add(wg.curWordCount, wg.lastLenCount.Mul(wg.lastLenCount, N))
+	for globalIdx >= wg.curWordCount { // = потому что нумерация с 0
+		wg.lastWordCount = wg.curWordCount
+		wg.curWordCount = wg.curWordCount + wg.lastLenCount*N
 		wg.lastLen += 1
 	}
 
 	// 2. Позиция внутри блока длины `length`
-	pos := new(big.Int).Sub(globalIdx, wg.lastWordCount)
+	pos := globalIdx - wg.lastWordCount
 
 	// 3. Конвертируем pos в систему счисления с основанием N
 	chars := make([]rune, wg.lastLen)
 	for j := wg.lastLen - 1; j >= 0; j-- {
-		chars[j] = wg.alphabet[new(big.Int).Mod(pos, N).Int64()]
-		pos.Div(pos, N)
+		chars[j] = wg.alphabet[pos%N]
+		pos = pos / N
 	}
 
 	return string(chars)
@@ -121,17 +87,17 @@ func (wg *WordGenerator) indexToWord(globalIdx *big.Int) string {
 // Next генерирует следующее слово в диапазоне
 // Возвращает слово и флаг, есть ли еще слова
 func (wg *WordGenerator) Next() (string, bool) {
-	if wg.currentIndex.Cmp(wg.endIndex) >= 0 {
+	if wg.currentIndex >= wg.endIndex {
 		return "", false
 	}
 
 	word := wg.indexToWord(wg.currentIndex)
-	wg.currentIndex.Add(wg.currentIndex, big.NewInt(1))
+	wg.currentIndex = wg.currentIndex + 1
 
 	return word, true
 }
 
 // HasNext проверяет, есть ли еще слова для генерации
 func (wg *WordGenerator) HasNext() bool {
-	return wg.currentIndex.Cmp(wg.endIndex) < 0
+	return wg.currentIndex < wg.endIndex
 }
