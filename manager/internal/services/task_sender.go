@@ -1,68 +1,55 @@
 package services
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"log"
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type TaskSender struct {
-	client       *http.Client
-	workersUrl   []string
-	workersCount int64
+	rabbit_conn *RMQConnection
 }
 
-func NewTaskSender(workersCount int64, workersPort []string) *TaskSender {
-	var workersUrl []string
-
-	for i := range workersCount {
-		workersUrl = append(workersUrl, "http://worker"+strconv.Itoa(int(i))+workersPort[i]+"/internal/api/worker/hash/crack/task")
-	}
-	log.Println(workersUrl)
-
+func NewTaskSender(rabbit_conn *RMQConnection) *TaskSender {
 	return &TaskSender{
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		workersUrl:   workersUrl,
-		workersCount: workersCount,
+		rabbit_conn: rabbit_conn,
 	}
 }
 
 func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
-	i := 0
-
 	for _, task := range tasks {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		taskJSON, err := json.Marshal(task)
 		if err != nil {
 			log.Printf("Failed to marshal task %+v", task)
 			return err
 		}
 
-		log.Println("SEND ", t.workersUrl[i])
-		resp, err := t.client.Post(
-			t.workersUrl[i],
-			"application/json",
-			bytes.NewBuffer(taskJSON),
+		err = t.rabbit_conn.Channel.PublishWithContext(
+			ctx,
+			"manager_worker",
+			"task",
+			false,
+			false,
+			amqp.Publishing{
+				ContentType:  "application/json",
+				DeliveryMode: amqp.Persistent,
+				Body:         taskJSON,
+			},
 		)
 		if err != nil {
-			log.Printf("Failed to send task %+v: %v", task, err)
+			log.Printf("Failed to publish a message: %s", err)
 			return err
 		}
 
-		resp.Body.Close()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			log.Printf("Received non-success status %d for task %+v", resp.StatusCode, task)
-		}
-
-		i += 1
-		i = i % int(t.workersCount)
+		log.Printf("SENT TASK %s", taskJSON)
+		// TODO: а нужно ли эти задачи сохранять в базу?
 	}
 
 	return nil

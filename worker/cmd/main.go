@@ -1,25 +1,33 @@
 package main
 
 import (
+	"context"
+	"log"
+
 	"github.com/TKaterinna/CrackHash/worker/config"
-	"github.com/TKaterinna/CrackHash/worker/internal/handlers"
 	"github.com/TKaterinna/CrackHash/worker/internal/repo"
-	"github.com/TKaterinna/CrackHash/worker/internal/routers"
 	"github.com/TKaterinna/CrackHash/worker/internal/services"
-	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	config := config.NewConfig()
 
-	router := gin.Default()
-
 	calcRepo := repo.NewCalcRepo()
-	resultSender := services.NewResultSender(config.ManagerPort)
+	rabbit_conn, err := services.RabbitMQConnect(config.RabbitMQURL)
+	if err != nil {
+		log.Panicf("Failed to connect RabbitMQ: %s", err)
+	}
+	defer rabbit_conn.Conn.Close()
+	defer rabbit_conn.Channel.Close()
+
+	err = rabbit_conn.SetupTopology()
+	if err != nil {
+		log.Panicf("Failed to setup topology: %s", err)
+	}
+
+	resultSender := services.NewResultSender(rabbit_conn)
 	calcService := services.NewCalcService(calcRepo, resultSender)
-	calcHandler := handlers.NewCalcHandler(calcService)
+	listener := services.NewCalcListener(rabbit_conn, calcService)
 
-	routers.NewCalcRouter(router, calcHandler)
-
-	router.Run(config.WorkerPort)
+	listener.Listen(context.Background())
 }

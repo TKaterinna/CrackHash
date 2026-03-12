@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
@@ -27,11 +28,11 @@ func (s *TaskService) Crack(req *models.HashCrackRequest) (uuid.UUID, error) {
 
 	id := uuid.New()
 
-	if err = s.repo.SaveRequest(id); err != nil {
+	tasks := s.CreateTasks(req, id)
+
+	if err = s.repo.SaveRequest(id, tasks); err != nil {
 		return uuid.Nil, err
 	}
-
-	tasks := s.CreateTasks(req, id)
 
 	go s.taskSender.Send(tasks)
 
@@ -84,7 +85,10 @@ func (s *TaskService) GetStatus(requestId uuid.UUID) (string, []string, error) {
 }
 
 func (s *TaskService) UpdateResult(req *models.CrackTaskResult) error {
-	if err := s.repo.UpdateResult(req.RequestId, req.Results, true); err != nil {
+	if req.Status == models.StatusERROR {
+		return fmt.Errorf("Worker error during crack hash")
+	}
+	if err := s.repo.UpdateResult(req.RequestId, req.TaskId, req.Results); err != nil {
 		return err
 	}
 

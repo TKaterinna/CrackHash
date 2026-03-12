@@ -85,19 +85,3 @@ func (h *TaskHandler) Status(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, &response)
 }
-
-func (h *TaskHandler) UpdateResult(ctx *gin.Context) {
-	var req models.CrackTaskResult
-
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "incorrect data struct" + err.Error()})
-		return
-	}
-
-	if err := h.service.UpdateResult(&req); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.Status(http.StatusOK)
-}

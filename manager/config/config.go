@@ -4,13 +4,15 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
 	ManagerPort  string
 	WorkersCount int64
-	WorkersPort  []string
+	RabbitMQURL  string
 	CombForTask  int64
+	ErrorDelay   time.Duration
 }
 
 func NewConfig() *Config {
@@ -35,17 +37,10 @@ func NewConfig() *Config {
 		}
 	}
 
-	var workersPort []string
-	for i := range workersCount {
-		workerPort := os.Getenv("WORKER_PORT_" + strconv.Itoa(i))
+	rabbitMQURL := os.Getenv("RABBITMQ_URL")
 
-		if len(workerPort) == 0 {
-			workerPort = "8081"
-		}
-
-		workerPort = ":" + workerPort
-
-		workersPort = append(workersPort, workerPort)
+	if len(rabbitMQURL) == 0 {
+		rabbitMQURL = "amqp://guest:guest@localhost:5672/"
 	}
 
 	combForTaskStr := os.Getenv("COMB_FOR_TASK")
@@ -59,10 +54,24 @@ func NewConfig() *Config {
 		}
 	}
 
+	errorDelayStr := os.Getenv("ERROR_DELAY")
+	var errorDelay time.Duration
+
+	if len(errorDelayStr) == 0 {
+		if errorDelay, err = time.ParseDuration("5m"); err != nil {
+			log.Panic("Can not parse default error delay to duration")
+		}
+	} else {
+		if errorDelay, err = time.ParseDuration(errorDelayStr); err != nil {
+			log.Panic("Can not parse error delay to duration")
+		}
+	}
+
 	return &Config{
 		ManagerPort:  managerPort,
 		WorkersCount: int64(workersCount),
-		WorkersPort:  workersPort,
+		RabbitMQURL:  rabbitMQURL,
 		CombForTask:  int64(combForTask),
+		ErrorDelay:   errorDelay,
 	}
 }

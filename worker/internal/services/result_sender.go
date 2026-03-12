@@ -1,54 +1,53 @@
 package services
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/TKaterinna/CrackHash/worker/internal/models"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type ResultSender struct {
-	client     *http.Client
-	managerUrl string
+	rabbit_conn *RMQConnection
 }
 
-func NewResultSender(managerPort string) *ResultSender {
+func NewResultSender(rabbit_conn *RMQConnection) *ResultSender {
 	return &ResultSender{
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		managerUrl: "http://manager" + managerPort + "/internal/api/manager/hash/crack/request",
+		rabbit_conn: rabbit_conn,
 	}
 }
 
 func (r *ResultSender) Send(res *models.CrackTaskResult) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	resJSON, err := json.Marshal(res)
 	if err != nil {
 		log.Printf("Failed to marshal result %+v", res)
 		return err
 	}
 
-	req, err := http.NewRequest(
-		http.MethodPatch,
-		r.managerUrl,
-		bytes.NewBuffer(resJSON),
+	err = r.rabbit_conn.Channel.PublishWithContext(
+		ctx,
+		"manager_worker",
+		"result",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         resJSON,
+		},
 	)
 	if err != nil {
-		log.Printf("Failed to send result %+v: %v", res, err)
+		log.Printf("Failed to publish a message: %s", err)
 		return err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := r.client.Do(req)
-	resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("Received non-success status %d for result %+v", resp.StatusCode, res)
-	}
+	log.Printf("SENT RESULT %s", resJSON)
 
 	return nil
 }

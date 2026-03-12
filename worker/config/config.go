@@ -3,29 +3,17 @@ package config
 import "os"
 
 type Config struct {
-	ManagerPort string
-	WorkerPort  string
+	RabbitMQURL string
 }
 
 func NewConfig() *Config {
-	managerPort := os.Getenv("MANAGER_PORT")
+	rabbitMQURL := os.Getenv("RABBITMQ_URL")
 
-	if len(managerPort) == 0 {
-		managerPort = "8080"
+	if len(rabbitMQURL) == 0 {
+		rabbitMQURL = "amqp://guest:guest@localhost:5672/"
 	}
-
-	managerPort = ":" + managerPort
-
-	workerPort := os.Getenv("WWORKER_PORT")
-
-	if len(workerPort) == 0 {
-		workerPort = "8081"
-	}
-
-	workerPort = ":" + workerPort
 
 	return &Config{
-		WorkerPort:  workerPort,
-		ManagerPort: managerPort,
+		RabbitMQURL: rabbitMQURL,
 	}
 }
