@@ -6,13 +6,13 @@ services:
     container_name: rabbitmq
     hostname: rabbitmq
     ports:
-      - "5672:5672"    # AMQP протокол (для подключения приложений)
-      - "15672:15672"  # Web UI (для мониторинга)
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq  # Персистентность данных
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: >
         bash -c '
@@ -21,32 +21,37 @@ services:
         '
       interval: 10s
       timeout: 5s
-      retries: 10  # Увеличь с 5 до 10
-      start_period: 20s  # Дай время на старт перед первой проверкой
+      retries: 10
+      start_period: 20s
     networks:
       - crackhash-net
     restart: unless-stopped
 
   # Databases
 
-  # manager-db:
-  #   image: postgres:15
-  #   container_name: profile_db
-  #   environment:
-  #     POSTGRES_USER: ${PROFILE_POSTGRES_USER}
-  #     POSTGRES_PASSWORD: ${PROFILE_POSTGRES_PASSWORD}
-  #     POSTGRES_DB: ${PROFILE_POSTGRES_DB}
-  #   ports:
-  #     - "${PROFILE_DB_PORT}:${INNER_DB_PORT}"
-  #   volumes:
-  #     - profile_data:/var/lib/postgresql/data
-  #   networks:
-  #     - crackhash-net
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U ${PROFILE_POSTGRES_USER} -d ${PROFILE_POSTGRES_DB} -h localhost || exit 1"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 25
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: crackhash_db
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: 
+        - CMD-SHELL
+        - mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - crackhash-net
+    restart: unless-stopped
 
 
   # Backend
@@ -62,6 +67,8 @@ services:
       RABBITMQ_URL: ${RABBITMQ_URL}
       COMB_FOR_TASK: ${COMB_FOR_TASK}
       ERROR_DELAY: ${ERROR_DELAY}
+      MONGO_URI: ${MONGODB_URI:-mongodb://admin:password@mongodb:27017/crackhash_db?authSource=admin}
+      MONGO_DB_NAME: ${MONGO_DB_NAME}
     # depends_on:
     #   manager-db:
     #     condition: service_healthy
@@ -69,6 +76,8 @@ services:
       - "${MANAGER_PORT}:${INNER_SERVICE_PORT}"
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     networks:
       - crackhash-net
@@ -114,6 +123,7 @@ services:
 
 volumes:
   rabbitmq_data:
+  mongo_data:
 
 networks:
   crackhash-net:

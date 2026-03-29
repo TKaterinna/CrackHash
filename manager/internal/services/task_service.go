@@ -5,17 +5,16 @@ import (
 	"math"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
-	"github.com/TKaterinna/CrackHash/manager/internal/repo"
 	"github.com/google/uuid"
 )
 
 type TaskService struct {
-	repo        *repo.TaskRepo
+	repo        TaskRepo
 	taskSender  *TaskSender
 	CombForTask int64
 }
 
-func NewTaskService(repo *repo.TaskRepo, taskSender *TaskSender, combForTask int64) *TaskService {
+func NewTaskService(repo TaskRepo, taskSender *TaskSender, combForTask int64) *TaskService {
 	return &TaskService{
 		repo:        repo,
 		taskSender:  taskSender,

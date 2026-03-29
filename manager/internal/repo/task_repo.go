@@ -28,8 +28,7 @@ type WorkerTasks struct {
 	TargetHash string
 }
 
-type TaskRepo struct {
-	// db mongo
+type InMemoryTaskRepo struct {
 	mxStatus         sync.RWMutex
 	cacheStatus      map[uuid.UUID]*RequestStatus
 	mxTasks          sync.RWMutex
@@ -37,8 +36,8 @@ type TaskRepo struct {
 	errorDelay       time.Duration
 }
 
-func NewTaskRepo(errorDelay time.Duration) *TaskRepo {
-	return &TaskRepo{
+func NewInMemoryTaskRepo(errorDelay time.Duration) *InMemoryTaskRepo {
+	return &InMemoryTaskRepo{
 		mxStatus:         sync.RWMutex{},
 		cacheStatus:      make(map[uuid.UUID]*RequestStatus),
 		mxTasks:          sync.RWMutex{},
@@ -47,7 +46,7 @@ func NewTaskRepo(errorDelay time.Duration) *TaskRepo {
 	}
 }
 
-func (r *TaskRepo) SaveRequest(id uuid.UUID, tasks []*models.CrackTaskRequest) error {
+func (r *InMemoryTaskRepo) SaveRequest(id uuid.UUID, tasks []*models.CrackTaskRequest) error {
 	tasksReady := make(map[uuid.UUID]bool)
 
 	for _, t := range tasks {
@@ -68,7 +67,7 @@ func (r *TaskRepo) SaveRequest(id uuid.UUID, tasks []*models.CrackTaskRequest) e
 	return nil
 }
 
-func (r *TaskRepo) GetStatus(id uuid.UUID) (string, []string, error) {
+func (r *InMemoryTaskRepo) GetStatus(id uuid.UUID) (string, []string, error) {
 	r.mxStatus.RLock()
 	defer r.mxStatus.RUnlock()
 
@@ -88,7 +87,7 @@ func (r *TaskRepo) GetStatus(id uuid.UUID) (string, []string, error) {
 	return entry.Status, results, nil
 }
 
-func (r *TaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results []string) error {
+func (r *InMemoryTaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results []string) error {
 	r.mxStatus.Lock()
 	defer r.mxStatus.Unlock()
 

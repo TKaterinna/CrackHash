@@ -13,6 +13,8 @@ type Config struct {
 	RabbitMQURL  string
 	CombForTask  int64
 	ErrorDelay   time.Duration
+	MongoURI     string
+	MongoDBName  string
 }
 
 func NewConfig() *Config {
@@ -67,11 +69,25 @@ func NewConfig() *Config {
 		}
 	}
 
+	mongoURI := os.Getenv("MONGO_URI")
+
+	if len(mongoURI) == 0 {
+		mongoURI = "mongodb://admin:password@mongodb:27017/crackhash_db?authSource=admin"
+	}
+
+	mongoDBName := os.Getenv("MONGO_DB_NAME")
+
+	if len(mongoDBName) == 0 {
+		mongoDBName = "crackhash_db"
+	}
+
 	return &Config{
 		ManagerPort:  managerPort,
 		WorkersCount: int64(workersCount),
 		RabbitMQURL:  rabbitMQURL,
 		CombForTask:  int64(combForTask),
 		ErrorDelay:   errorDelay,
+		MongoURI:     mongoURI,
+		MongoDBName:  mongoDBName,
 	}
 }

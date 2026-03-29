@@ -18,7 +18,7 @@ func main() {
 
 	router := gin.Default()
 
-	taskRepo := repo.NewTaskRepo(config.ErrorDelay)
+	taskRepo := repo.NewMongoTaskRepo(config.MongoURI, config.MongoDBName, config.ErrorDelay)
 
 	rabbit_conn, err := services.RabbitMQConnect(config.RabbitMQURL)
 	if err != nil {

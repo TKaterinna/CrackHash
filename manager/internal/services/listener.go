@@ -50,13 +50,13 @@ func (l *Listener) Listen(ctx context.Context) {
 				log.Printf("READ %s", d.Body)
 				if err := json.Unmarshal(d.Body, &req); err != nil {
 					log.Printf("Bad message: %v", err)
-					d.Nack(false, false) // TODO: (что это?) Отбросить битое сообщение
+					d.Nack(false, false)
 					continue
 				}
 
 				if err := l.service.UpdateResult(&req); err != nil {
-					log.Printf("Update result in db failed: %v", err) // TODO: может срабоать при дубликате, например дошло сообщение от выпавшего воркера, а другой уже досчитал эту таску
-					d.Nack(false, false)                              // TODO: (что это?) Отбросить битое сообщение
+					log.Printf("Update result in db failed: %v", err) // TODO: может сработать при дубликате, например дошло сообщение от выпавшего воркера, а другой уже досчитал эту таску
+					d.Nack(false, false)
 					continue
 				}
 
