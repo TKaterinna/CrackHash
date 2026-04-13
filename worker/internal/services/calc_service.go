@@ -15,12 +15,14 @@ import (
 type CalcService struct {
 	repo         *repo.CalcRepo
 	resultSender *ResultSender
+	sleepMs      time.Duration
 }
 
-func NewCalcService(repo *repo.CalcRepo, resultSender *ResultSender) *CalcService {
+func NewCalcService(repo *repo.CalcRepo, resultSender *ResultSender, sleepMs time.Duration) *CalcService {
 	return &CalcService{
 		repo:         repo,
 		resultSender: resultSender,
+		sleepMs:      sleepMs,
 	}
 }
 
@@ -65,9 +67,12 @@ func (s *CalcService) checkWord(word string, checkHash string) bool {
 func (s *CalcService) work(req *models.CrackTaskRequest) {
 	start := time.Now()
 
-	metrics.TasksInProgress.Set(1)
+	metrics.WorkerStatus.Set(1)
+
+	time.Sleep(s.sleepMs)
+
 	defer func() {
-		metrics.TasksInProgress.Set(0)
+		metrics.WorkerStatus.Set(0)
 		metrics.TaskDuration.Observe(time.Since(start).Seconds())
 	}()
 
@@ -76,6 +81,8 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 	var wg *WordGenerator
 
 	if wg, err = NewWordGenerator(req); err != nil {
+		log.Printf("Task %s failed at generator init: %v", req.TaskId, err)
+
 		res := &models.CrackTaskResult{
 			TaskId:    req.TaskId,
 			RequestId: req.RequestId,
@@ -85,23 +92,20 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 		s.resultSender.Send(res)
 
 		metrics.TasksTotal.WithLabelValues("error").Inc()
-
 		return
 	}
 
-	log.Println("START work")
+	log.Printf("START work on task %s", req.TaskId)
 
 	for {
 		var word string
 		var isNotEnd bool
-		if word, isNotEnd = wg.Next(); isNotEnd == false {
+		if word, isNotEnd = wg.Next(); !isNotEnd {
 			break
 		}
 
-		log.Println("Check word = ", word)
-
 		if s.checkWord(word, req.TargetHash) {
-			log.Println("CORRECT WORD: ", word)
+			log.Printf("✓ FOUND: %s", word)
 			words = append(words, word)
 		}
 	}
@@ -115,4 +119,5 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 	s.resultSender.Send(res)
 
 	metrics.TasksTotal.WithLabelValues("done").Inc()
+	log.Printf("✓ Task %s completed", req.TaskId)
 }

@@ -6,8 +6,9 @@ data:
   MANAGER_PORT: "8080"
   INNER_SERVICE_PORT: "8080"
   WORKERS_COUNT: "2"
-  COMB_FOR_TASK: "7"
+  COMB_FOR_TASK: "50000"
   ERROR_DELAY: "60s"
+  SLEEP_MS: "2000ms"
   
   # MongoDB
   MONGO_DB_NAME: "crackhash_db"

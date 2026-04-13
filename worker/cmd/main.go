@@ -28,7 +28,7 @@ func main() {
 	}
 
 	resultSender := services.NewResultSender(rabbit_conn)
-	calcService := services.NewCalcService(calcRepo, resultSender)
+	calcService := services.NewCalcService(calcRepo, resultSender, config.SleepMs)
 	listener := services.NewCalcListener(rabbit_conn, calcService)
 
 	go func() {

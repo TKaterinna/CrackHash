@@ -36,7 +36,7 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
         metrics_path: /metrics
-        scrape_interval: 15s
+        scrape_interval: 1s
 
       - job_name: 'manager'
         kubernetes_sd_configs:
@@ -59,7 +59,7 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
         metrics_path: /metrics
-        scrape_interval: 15s
+        scrape_interval: 1s
 
 ---
 # ==========================================
