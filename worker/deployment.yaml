@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        - name: wait-for-rabbitmq
+          image: alpine:3.19
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for RabbitMQ..."
+              until nc -z -w 2 rabbitmq 5672 2>/dev/null; do
+                sleep 2
+              done
+              echo "RabbitMQ is ready!"
+          envFrom:
+            - configMapRef:
+                name: app-config
+      containers:
+        - name: worker
+          image: kattarrina/crackhash-worker:latest
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 8081
+            name: metrics
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

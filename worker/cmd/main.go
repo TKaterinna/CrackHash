@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 
 	"github.com/TKaterinna/CrackHash/worker/config"
 	"github.com/TKaterinna/CrackHash/worker/internal/repo"
 	"github.com/TKaterinna/CrackHash/worker/internal/services"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -28,6 +30,14 @@ func main() {
 	resultSender := services.NewResultSender(rabbit_conn)
 	calcService := services.NewCalcService(calcRepo, resultSender)
 	listener := services.NewCalcListener(rabbit_conn, calcService)
+
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Println("Metrics server starting on :8081")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	listener.Listen(context.Background())
 }

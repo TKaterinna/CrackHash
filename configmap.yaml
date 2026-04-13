@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  MANAGER_PORT: "8080"
+  INNER_SERVICE_PORT: "8080"
+  WORKERS_COUNT: "2"
+  COMB_FOR_TASK: "7"
+  ERROR_DELAY: "60s"
+  
+  # MongoDB
+  MONGO_DB_NAME: "crackhash_db"
+  MONGO_REPLICA_SET: "rs0"
+  MONGODB_URI: "mongodb://mongodb-0.mongodb-headless.default.svc.cluster.local:27017,mongodb-1.mongodb-headless.default.svc.cluster.local:27017,mongodb-2.mongodb-headless.default.svc.cluster.local:27017/crackhash_db?replicaSet=rs0&writeConcern=majority"
+  
+  # RabbitMQ
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq-0.rabbitmq-headless.default.svc.cluster.local:5672/"

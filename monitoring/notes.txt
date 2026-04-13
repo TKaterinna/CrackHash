@@ -1,0 +1,17 @@
+для постмана kubectl port-forward svc/manager 8080:80
+
+http://localhost:15672/ тут дашборд реббита
+kubectl port-forward svc/rabbitmq 15672:15672
+
+состояние реплик mongo одним запросом
+kubectl exec mongodb-0 -- mongosh --quiet --eval '
+  const status = rs.status();
+  print("Replica Set: " + status.set + "\n");
+  status.members.forEach(m => {
+    const role = m.stateStr.padEnd(10);
+    const health = m.health === 1 ? "🟢 UP" : "🔴 DOWN";
+    const lag = m.optimeDate ? "" : " (no optime)";
+    print("  " + m.name + " → " + role + " " + health + lag);
+  });
+'
+

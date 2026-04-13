@@ -57,6 +57,8 @@ func InitDB(uri string) (*mongo.Client, error) {
 }
 
 func NewMongoTaskRepo(uri string, dbName string, errorDelay time.Duration) *MongoTaskRepo {
+	fmt.Printf("NewMongoTaskRepo uri=%s dbName=%s errorDelay=%d", uri, dbName, errorDelay)
+
 	client, err := InitDB(uri)
 	if err != nil {
 		panic("mongo client creation failed")

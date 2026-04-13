@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: manager
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: manager
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        - name: wait-for-mongodb
+          image: mongo:7
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for MongoDB..."
+              until mongosh "$MONGODB_URI" --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
+                sleep 2;
+              done
+              echo "MongoDB is ready!"
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for RabbitMQ..."
+              RABBIT_HOST=$(echo "$RABBITMQ_URL" | sed -E 's|amqp://[^@]*@([^:/]+).*|\1|')
+              until nc -z "$RABBIT_HOST" 5672; do
+                echo "RabbitMQ not ready, waiting..."
+                sleep 2;
+              done
+              echo "RabbitMQ is ready!"
+          envFrom:
+            - configMapRef:
+                name: app-config
+      containers:
+        - name: manager
+          image: kattarrina/crackhash-manager:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8082
+              name: metrics
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"

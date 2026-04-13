@@ -1,0 +1,211 @@
+# ==========================================
+# 1. CONFIGMAP: Настройка Prometheus
+# ==========================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minimal-prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      
+      - job_name: 'workers'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: worker
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+?)(\:[0-9]+)?;([0-9]+)
+            replacement: $1:$3
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+        metrics_path: /metrics
+        scrape_interval: 15s
+
+      - job_name: 'manager'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: manager
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+?)(\:[0-9]+)?;([0-9]+)
+            replacement: $1:$3
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+        metrics_path: /metrics
+        scrape_interval: 15s
+
+---
+# ==========================================
+# 2. DEPLOYMENT: Prometheus Server
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimal-prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minimal-prometheus
+  template:
+    metadata:
+      labels:
+        app: minimal-prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.52.0
+        ports:
+        - containerPort: 9090
+          name: http
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus/"
+        - "--storage.tsdb.retention.time=24h"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        - name: data
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+      volumes:
+      - name: config
+        configMap:
+          name: minimal-prometheus-config
+      - name: data
+        emptyDir: {}
+
+---
+# ==========================================
+# 3. SERVICE: Prometheus
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimal-prometheus
+  namespace: monitoring
+spec:
+  selector:
+    app: minimal-prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: http
+
+---
+# ==========================================
+# 4. DEPLOYMENT: Grafana
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimal-grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minimal-grafana
+  template:
+    metadata:
+      labels:
+        app: minimal-grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.0.0
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin123"
+        - name: GF_INSTALL_PLUGINS
+          value: ""
+        volumeMounts:
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 50m
+          limits:
+            memory: 512Mi
+            cpu: 200m
+      volumes:
+      - name: datasources
+        configMap:
+          name: minimal-grafana-datasources
+
+---
+# ==========================================
+# 5. CONFIGMAP: Источник данных для Grafana
+# ==========================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minimal-grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://minimal-prometheus:9090
+        access: proxy
+        isDefault: true
+
+---
+# ==========================================
+# 6. SERVICE: Grafana
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimal-grafana
+  namespace: monitoring
+spec:
+  selector:
+    app: minimal-grafana
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http
+      protocol: TCP
+  type: ClusterIP

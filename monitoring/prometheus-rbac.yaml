@@ -1,0 +1,40 @@
+# monitoring/prometheus-rbac.yaml
+
+# 1. ServiceAccount для Prometheus
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+# 2. ClusterRole: права на чтение подов, сервисов, эндпоинтов
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-reader
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - endpoints
+      - nodes
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources:
+      - endpointslices
+    verbs: ["get", "list", "watch"]
+---
+# 3. ClusterRoleBinding: привязываем права к сервисному аккаунту
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring

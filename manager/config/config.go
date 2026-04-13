@@ -69,10 +69,10 @@ func NewConfig() *Config {
 		}
 	}
 
-	mongoURI := os.Getenv("MONGO_URI")
+	mongoURI := os.Getenv("MONGODB_URI")
 
 	if len(mongoURI) == 0 {
-		mongoURI = "mongodb://admin:password@mongodb:27017/crackhash_db?authSource=admin"
+		mongoURI = "mongodb://mongodb-0.mongodb-headless.default.svc.cluster.local:27017,mongodb-1.mongodb-headless.default.svc.cluster.local:27017,mongodb-2.mongodb-headless.default.svc.cluster.local:27017/crackhash_db?replicaSet=rs0"
 	}
 
 	mongoDBName := os.Getenv("MONGO_DB_NAME")

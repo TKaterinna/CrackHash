@@ -4,7 +4,9 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"log"
+	"time"
 
+	"github.com/TKaterinna/CrackHash/worker/internal/metrics"
 	"github.com/TKaterinna/CrackHash/worker/internal/models"
 	"github.com/TKaterinna/CrackHash/worker/internal/repo"
 	"github.com/google/uuid"
@@ -61,6 +63,14 @@ func (s *CalcService) checkWord(word string, checkHash string) bool {
 }
 
 func (s *CalcService) work(req *models.CrackTaskRequest) {
+	start := time.Now()
+
+	metrics.TasksInProgress.Set(1)
+	defer func() {
+		metrics.TasksInProgress.Set(0)
+		metrics.TaskDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	var err error
 	var words []string
 	var wg *WordGenerator
@@ -73,6 +83,9 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 			Status:    models.StatusERROR,
 		}
 		s.resultSender.Send(res)
+
+		metrics.TasksTotal.WithLabelValues("error").Inc()
+
 		return
 	}
 
@@ -100,4 +113,6 @@ func (s *CalcService) work(req *models.CrackTaskRequest) {
 		Status:    models.StatusDONE,
 	}
 	s.resultSender.Send(res)
+
+	metrics.TasksTotal.WithLabelValues("done").Inc()
 }
