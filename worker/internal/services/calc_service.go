@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/TKaterinna/CrackHash/worker/internal/metrics"
@@ -16,6 +17,7 @@ type CalcService struct {
 	repo         *repo.CalcRepo
 	resultSender *ResultSender
 	sleepMs      time.Duration
+	activeTasks  atomic.Int64
 }
 
 func NewCalcService(repo *repo.CalcRepo, resultSender *ResultSender, sleepMs time.Duration) *CalcService {
@@ -64,15 +66,27 @@ func (s *CalcService) checkWord(word string, checkHash string) bool {
 	return false
 }
 
+func (s *CalcService) updateWorkerStatus(activeCount int64) {
+	metrics.ActiveTasks.Set(float64(activeCount))
+
+	if activeCount > 0 {
+		metrics.WorkerStatus.Set(1)
+	} else {
+		metrics.WorkerStatus.Set(0)
+	}
+}
+
 func (s *CalcService) work(req *models.CrackTaskRequest) {
 	start := time.Now()
 
-	metrics.WorkerStatus.Set(1)
+	current := s.activeTasks.Add(1)
+	s.updateWorkerStatus(current)
 
 	time.Sleep(s.sleepMs)
 
 	defer func() {
-		metrics.WorkerStatus.Set(0)
+		current := s.activeTasks.Add(-1)
+		s.updateWorkerStatus(current)
 		metrics.TaskDuration.Observe(time.Since(start).Seconds())
 	}()
 

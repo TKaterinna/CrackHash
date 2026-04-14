@@ -28,4 +28,11 @@ var (
 			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
 		},
 	)
+
+	ActiveTasks = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "worker_active_tasks",
+			Help: "Current number of concurrently processing tasks",
+		},
+	)
 )
