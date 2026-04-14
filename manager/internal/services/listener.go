@@ -55,12 +55,11 @@ func (l *Listener) Listen(ctx context.Context) {
 				}
 
 				if err := l.service.UpdateResult(&req); err != nil {
-					log.Printf("Update result in db failed: %v", err) // TODO: может сработать при дубликате, например дошло сообщение от выпавшего воркера, а другой уже досчитал эту таску
+					log.Printf("Update result in db failed: %v", err) // вроде может сработать при дубликате, например дошло сообщение от выпавшего воркера, а другой уже досчитал эту таску
 					d.Nack(false, false)
 					continue
 				}
 
-				//ok
 				d.Ack(false)
 				log.Printf("Result processed for task %s", req.TaskId)
 			}

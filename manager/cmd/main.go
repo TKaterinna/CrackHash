@@ -41,6 +41,10 @@ func main() {
 	taskSender := services.NewTaskSender(rabbit_conn)
 	taskService := services.NewTaskService(taskRepo, taskSender, config.CombForTask)
 	taskHandler := handlers.NewTaskHandler(taskService)
+
+	log.Println("Recovering pending/queued tasks from MongoDB...")
+	taskService.ResendQueuedTasks()
+
 	listener := services.NewCalcListener(rabbit_conn, taskService)
 	listener.Listen(context.Background())
 

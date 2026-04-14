@@ -36,3 +36,53 @@ kubectl exec mongodb-0 -- mongosh --quiet --eval '
     print("  " + m.name + " → " + role + " " + health + lag);
   });
 '
+
+тестовый запрос
+{
+	"hash": "4124bc0a9335c27f086f24ba207a4912",
+	"maxLength": 4,
+	"alphabet": "abcqwertyuioplkjhgfdszxvnmaaaaabbbbbbbbbbb"
+}
+эталонный ответ
+{
+	"status": "READY",
+	"results": [
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa",
+		"aa"
+	]
+}
+P.S.:(аа идут до 39 строчки)

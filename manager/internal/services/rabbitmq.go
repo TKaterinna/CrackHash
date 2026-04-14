@@ -109,3 +109,37 @@ func (c *RMQConnection) SetupTopology() error {
 
 	return nil
 }
+
+func (c *RMQConnection) StartRecoveryWatcher(taskService *TaskService) {
+	closeChan := c.Conn.NotifyClose(make(chan *amqp.Error))
+
+	go func() {
+		for range closeChan {
+			log.Println("RabbitMQ connection lost. Waiting for recovery...")
+			for c.Conn.IsClosed() {
+				time.Sleep(2 * time.Second)
+			}
+			log.Println("RabbitMQ connection restored. Triggering queued tasks resend...")
+
+			if err := c.RecreateChannel(); err != nil {
+				log.Printf("Failed to recreate channel after reconnect: %v", err)
+				continue
+			}
+
+			_ = c.SetupTopology()
+
+			taskService.ResendQueuedTasks()
+
+			closeChan = c.Conn.NotifyClose(make(chan *amqp.Error))
+		}
+	}()
+}
+
+func (c *RMQConnection) RecreateChannel() error {
+	ch, err := c.Conn.Channel()
+	if err != nil {
+		return err
+	}
+	c.Channel = ch
+	return nil
+}

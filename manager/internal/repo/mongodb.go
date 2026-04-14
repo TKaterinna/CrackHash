@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
@@ -101,7 +102,7 @@ func (r *MongoTaskRepo) SaveRequest(id uuid.UUID, tasks []*models.CrackTaskReque
 		TasksCount: len(tasks),
 		TasksReady: tasksReady,
 		StartTime:  time.Now(),
-		Status:     models.StatusInProgress,
+		Status:     models.StatusQueued,
 		Results:    make([]string, 0),
 	}
 
@@ -152,13 +153,13 @@ func (r *MongoTaskRepo) GetStatus(id uuid.UUID) (string, []string, error) {
 		results = req.Results
 	} else {
 		results = nil
-		if time.Now().After(req.StartTime.Add(r.errorDelay)) && status != models.StatusERROR {
-			_, _ = r.requests.UpdateOne(ctx,
-				bson.M{"_id": id, "status": bson.M{"$ne": models.StatusERROR}},
-				bson.M{"$set": bson.M{"status": models.StatusERROR}},
-			)
-			status = models.StatusERROR
-		}
+		// if time.Now().After(req.StartTime.Add(r.errorDelay)) && status != models.StatusERROR {
+		// 	_, _ = r.requests.UpdateOne(ctx,
+		// 		bson.M{"_id": id, "status": bson.M{"$ne": models.StatusERROR}},
+		// 		bson.M{"$set": bson.M{"status": models.StatusERROR}},
+		// 	)
+		// 	status = models.StatusERROR
+		// }
 	}
 
 	return status, results, nil
@@ -221,4 +222,109 @@ func (r *MongoTaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results 
 	}
 
 	return nil
+}
+
+func (r *MongoTaskRepo) GetPendingTasks() ([]*models.CrackTaskRequest, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cursor, err := r.requests.Find(ctx, bson.M{"status": models.StatusInProgress})
+	if err != nil {
+		return nil, fmt.Errorf("find in-progress requests: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var pendingTasks []*models.CrackTaskRequest
+
+	for cursor.Next(ctx) {
+		var req RequestStatusDoc
+		if err := cursor.Decode(&req); err != nil {
+			log.Printf("Failed to decode request: %v", err)
+			continue
+		}
+
+		for taskIdStr, isReady := range req.TasksReady {
+			if !isReady {
+				taskId, err := uuid.Parse(taskIdStr)
+				if err != nil {
+					log.Printf("Invalid taskId in tasks_ready: %s", taskIdStr)
+					continue
+				}
+
+				var taskDoc WorkerTasksDoc
+				err = r.workerTasks.FindOne(ctx, bson.M{"_id": taskId}).Decode(&taskDoc)
+				if err != nil {
+					log.Printf("Task %s not found in worker_tasks: %v", taskId, err)
+					continue
+				}
+
+				task := &models.CrackTaskRequest{
+					TaskId:     taskDoc.ID,
+					RequestId:  req.ID,
+					StartIndex: taskDoc.StartIndex,
+					Count:      taskDoc.Count,
+					TargetHash: taskDoc.TargetHash,
+					MaxLen:     taskDoc.MaxLen,
+					Alphabet:   taskDoc.Alphabet,
+				}
+				pendingTasks = append(pendingTasks, task)
+			}
+		}
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+
+	return pendingTasks, nil
+}
+
+func (r *MongoTaskRepo) UpdateRequestStatus(id uuid.UUID, status string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := r.requests.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
+	return err
+}
+
+func (r *MongoTaskRepo) GetQueuedTasks() ([]*models.CrackTaskRequest, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := r.requests.Find(ctx, bson.M{"status": models.StatusQueued})
+	if err != nil {
+		return nil, fmt.Errorf("find queued requests: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var pending []*models.CrackTaskRequest
+
+	for cursor.Next(ctx) {
+		var req RequestStatusDoc
+		if err := cursor.Decode(&req); err != nil {
+			continue
+		}
+
+		for taskIdStr, isReady := range req.TasksReady {
+			if !isReady {
+				taskId, err := uuid.Parse(taskIdStr)
+				if err != nil {
+					continue
+				}
+
+				var taskDoc WorkerTasksDoc
+				if findErr := r.workerTasks.FindOne(ctx, bson.M{"_id": taskId}).Decode(&taskDoc); findErr == nil {
+					pending = append(pending, &models.CrackTaskRequest{
+						TaskId:     taskDoc.ID,
+						RequestId:  req.ID,
+						StartIndex: taskDoc.StartIndex,
+						Count:      taskDoc.Count,
+						TargetHash: taskDoc.TargetHash,
+						MaxLen:     taskDoc.MaxLen,
+						Alphabet:   taskDoc.Alphabet,
+					})
+				}
+			}
+		}
+	}
+	return pending, cursor.Err()
 }

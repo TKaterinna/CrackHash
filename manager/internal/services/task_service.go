@@ -2,7 +2,9 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"math"
+	"sync"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
 	"github.com/google/uuid"
@@ -12,6 +14,7 @@ type TaskService struct {
 	repo        TaskRepo
 	taskSender  *TaskSender
 	CombForTask int64
+	mu          sync.Mutex
 }
 
 func NewTaskService(repo TaskRepo, taskSender *TaskSender, combForTask int64) *TaskService {
@@ -30,10 +33,19 @@ func (s *TaskService) Crack(req *models.HashCrackRequest) (uuid.UUID, error) {
 	tasks := s.CreateTasks(req, id)
 
 	if err = s.repo.SaveRequest(id, tasks); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("save request to mongo: %w", err)
 	}
 
-	go s.taskSender.Send(tasks)
+	go func() {
+		if err := s.taskSender.Send(tasks); err != nil {
+			log.Printf("Initial send failed for request %s: %v. Tasks remain QUEUED.", id, err)
+			return
+		}
+
+		if err := s.repo.UpdateRequestStatus(id, models.StatusInProgress); err != nil {
+			log.Printf("Failed to update status for %s: %v", id, err)
+		}
+	}()
 
 	return id, nil
 }
@@ -92,4 +104,34 @@ func (s *TaskService) UpdateResult(req *models.CrackTaskResult) error {
 	}
 
 	return nil
+}
+
+func (s *TaskService) ResendQueuedTasks() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tasks, err := s.repo.GetQueuedTasks()
+	if err != nil {
+		log.Printf("Reconnect recovery: failed to fetch queued tasks: %v", err)
+		return
+	}
+
+	if len(tasks) == 0 {
+		return
+	}
+
+	log.Printf("Connection restored: resending %d queued tasks...", len(tasks))
+	if err := s.taskSender.Send(tasks); err != nil {
+		log.Printf("Resend failed: %v. Tasks remain QUEUED for next attempt.", err)
+		return
+	}
+
+	reqIds := make(map[uuid.UUID]struct{})
+	for _, t := range tasks {
+		reqIds[t.RequestId] = struct{}{}
+	}
+	for reqId := range reqIds {
+		_ = s.repo.UpdateRequestStatus(reqId, models.StatusInProgress)
+	}
+	log.Printf("Queued tasks successfully resent and status updated.")
 }

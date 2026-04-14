@@ -49,13 +49,13 @@ func (l *Listener) Listen(ctx context.Context) {
 			log.Printf("READ %s", d.Body)
 			if err := json.Unmarshal(d.Body, &req); err != nil {
 				log.Printf("Bad message: %v", err)
-				d.Nack(false, false) // TODO: (что это?) Отбросить битое сообщение
+				d.Nack(false, false) // сообщение отбрасывается: только оно + не возвращается в очередь
 				continue
 			}
 
 			if err := l.service.Save(&req); err != nil {
 				log.Printf("Save request failed: %v", err)
-				d.Nack(false, false) // TODO: (что это?) Отбросить битое сообщение
+				d.Nack(false, false)
 				continue
 			}
 

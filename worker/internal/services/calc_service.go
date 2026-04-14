@@ -35,7 +35,7 @@ func (s *CalcService) Save(req *models.CrackTaskRequest) error {
 
 	print("Save")
 
-	go s.work(req)
+	s.work(req)
 
 	return nil
 }

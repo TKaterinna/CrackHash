@@ -35,6 +35,7 @@ type CrackTaskResult struct {
 }
 
 const (
+	StatusQueued     string = "QUEUED"
 	StatusInProgress string = "IN_PROGRESS"
 	StatusREADY      string = "READY"
 	StatusERROR      string = "ERROR"
