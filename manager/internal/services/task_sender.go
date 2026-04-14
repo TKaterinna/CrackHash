@@ -30,34 +30,6 @@ func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
 			failed++
 			continue
 		}
-		// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		// defer cancel()
-
-		// taskJSON, err := json.Marshal(task)
-		// if err != nil {
-		// 	log.Printf("Failed to marshal task %s: %v", task.TaskId, err)
-		// 	failed++
-		// 	cancel()
-		// 	continue
-		// }
-
-		// err = t.rabbit_conn.Channel.PublishWithContext(
-		// 	ctx,
-		// 	"manager_worker",
-		// 	"task",
-		// 	false,
-		// 	false,
-		// 	amqp.Publishing{
-		// 		ContentType:  "application/json",
-		// 		DeliveryMode: amqp.Persistent,
-		// 		Body:         taskJSON,
-		// 	},
-		// )
-		// if err != nil {
-		// 	log.Printf("Failed to publish task %s: %v", task.TaskId, err)
-		// 	failed++
-		// 	continue
-		// }
 
 		log.Printf("SENT TASK %s", task.TaskId)
 	}
@@ -78,9 +50,20 @@ func (t *TaskSender) SendWithRetry(task *models.CrackTaskRequest, maxRetries int
 	baseDelay := 500 * time.Millisecond
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		ch := t.rabbit_conn.GetChannel()
+		if ch == nil || ch.IsClosed() {
+			if attempt < maxRetries-1 {
+				delay := baseDelay * time.Duration(1<<attempt)
+				log.Printf("Channel unavailable for task %s, waiting %v before retry...", task.TaskId, delay)
+				time.Sleep(delay)
+				continue
+			}
+			return fmt.Errorf("channel unavailable after %d attempts", maxRetries)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
-		err = t.rabbit_conn.Channel.PublishWithContext(
+		err = ch.PublishWithContext(
 			ctx,
 			"manager_worker",
 			"task",

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -21,6 +22,11 @@ func NewResultSender(rabbit_conn *RMQConnection) *ResultSender {
 }
 
 func (r *ResultSender) Send(res *models.CrackTaskResult) error {
+	ch := r.rabbit_conn.GetChannel()
+	if ch == nil || ch.IsClosed() {
+		return fmt.Errorf("channel unavailable")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -30,7 +36,7 @@ func (r *ResultSender) Send(res *models.CrackTaskResult) error {
 		return err
 	}
 
-	err = r.rabbit_conn.Channel.PublishWithContext(
+	err = ch.PublishWithContext(
 		ctx,
 		"manager_worker",
 		"result",

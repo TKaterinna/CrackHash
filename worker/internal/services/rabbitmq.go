@@ -3,12 +3,14 @@ package services
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type RMQConnection struct {
+	mu      sync.RWMutex
 	Conn    *amqp.Connection
 	Channel *amqp.Channel
 }
@@ -107,5 +109,45 @@ func (c *RMQConnection) SetupTopology() error {
 		return err
 	}
 
+	return nil
+}
+
+func (c *RMQConnection) StartRecoveryWatcher() {
+	closeChan := c.Conn.NotifyClose(make(chan *amqp.Error))
+
+	go func() {
+		for range closeChan {
+			log.Println("RabbitMQ connection lost. Waiting for recovery...")
+			for c.Conn.IsClosed() {
+				time.Sleep(2 * time.Second)
+			}
+			log.Println("RabbitMQ connection restored. Triggering queued tasks resend...")
+
+			if err := c.RecreateChannel(); err != nil {
+				log.Printf("Failed to recreate channel after reconnect: %v", err)
+				continue
+			}
+
+			_ = c.SetupTopology()
+
+			closeChan = c.Conn.NotifyClose(make(chan *amqp.Error))
+		}
+	}()
+}
+
+func (c *RMQConnection) GetChannel() *amqp.Channel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Channel
+}
+
+func (c *RMQConnection) RecreateChannel() error {
+	ch, err := c.Conn.Channel()
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.Channel = ch
+	c.mu.Unlock()
 	return nil
 }

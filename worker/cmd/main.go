@@ -19,8 +19,6 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to connect RabbitMQ: %s", err)
 	}
-	defer rabbit_conn.Conn.Close()
-	defer rabbit_conn.Channel.Close()
 
 	err = rabbit_conn.SetupTopology()
 	if err != nil {
@@ -30,6 +28,8 @@ func main() {
 	resultSender := services.NewResultSender(rabbit_conn)
 	calcService := services.NewCalcService(calcRepo, resultSender, config.SleepMs)
 	listener := services.NewCalcListener(rabbit_conn, calcService)
+
+	rabbit_conn.StartRecoveryWatcher()
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())

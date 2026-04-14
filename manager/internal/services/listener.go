@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
 )
@@ -21,47 +22,67 @@ func NewCalcListener(rabbit_conn *RMQConnection, service *TaskService) *Listener
 }
 
 func (l *Listener) Listen(ctx context.Context) {
-	msgs, err := l.rabbit_conn.Channel.Consume(
-		"result.queue",
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Panicf("Failed to register a consumer: %s", err)
-	}
-
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("Listener shutting down")
+				log.Println("Listener: shutting down")
 				return
-			case d, ok := <-msgs:
-				if !ok {
-					log.Println("Messages channel closed")
+			default:
+			}
+
+			ch := l.rabbit_conn.GetChannel()
+			if ch == nil || ch.IsClosed() {
+				log.Println("Listener: channel not ready, waiting...")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			msgs, err := ch.Consume(
+				"result.queue",
+				"",
+				false,
+				false,
+				false,
+				false,
+				nil,
+			)
+			if err != nil {
+				log.Printf("Listener: failed to consume: %v. Retrying...", err)
+				time.Sleep(3 * time.Second)
+				continue
+			}
+
+			log.Println("Listener: subscribed to result.queue")
+
+			for {
+				select {
+				case <-ctx.Done():
 					return
-				}
+				case d, ok := <-msgs:
+					if !ok {
+						log.Println("Listener: messages channel closed, will re-subscribe")
+						break
+					}
 
-				var req models.CrackTaskResult
-				log.Printf("READ %s", d.Body)
-				if err := json.Unmarshal(d.Body, &req); err != nil {
-					log.Printf("Bad message: %v", err)
-					d.Nack(false, false)
-					continue
-				}
+					var req models.CrackTaskResult
+					if err := json.Unmarshal(d.Body, &req); err != nil {
+						log.Printf("Listener: bad message: %v", err)
+						d.Nack(false, false)
+						continue
+					}
 
-				if err := l.service.UpdateResult(&req); err != nil {
-					log.Printf("Update result in db failed: %v", err) // вроде может сработать при дубликате, например дошло сообщение от выпавшего воркера, а другой уже досчитал эту таску
-					d.Nack(false, false)
-					continue
-				}
+					if err := l.service.UpdateResult(&req); err != nil {
+						log.Printf("Listener: update failed: %v", err)
+						d.Nack(false, false)
+						continue
+					}
 
-				d.Ack(false)
-				log.Printf("Result processed for task %s", req.TaskId)
+					if err := d.Ack(false); err != nil {
+						log.Printf("Listener: ack failed: %v", err)
+					}
+					log.Printf("Listener: processed result for task %s", req.TaskId)
+				}
 			}
 		}
 	}()

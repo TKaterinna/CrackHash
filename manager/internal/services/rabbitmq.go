@@ -3,12 +3,14 @@ package services
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type RMQConnection struct {
+	mu      sync.RWMutex
 	Conn    *amqp.Connection
 	Channel *amqp.Channel
 }
@@ -135,11 +137,19 @@ func (c *RMQConnection) StartRecoveryWatcher(taskService *TaskService) {
 	}()
 }
 
+func (c *RMQConnection) GetChannel() *amqp.Channel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Channel
+}
+
 func (c *RMQConnection) RecreateChannel() error {
 	ch, err := c.Conn.Channel()
 	if err != nil {
 		return err
 	}
+	c.mu.Lock()
 	c.Channel = ch
+	c.mu.Unlock()
 	return nil
 }

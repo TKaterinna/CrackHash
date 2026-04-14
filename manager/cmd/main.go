@@ -30,8 +30,6 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to connect RabbitMQ: %s", err)
 	}
-	defer rabbit_conn.Conn.Close()
-	defer rabbit_conn.Channel.Close()
 
 	err = rabbit_conn.SetupTopology()
 	if err != nil {
@@ -41,6 +39,8 @@ func main() {
 	taskSender := services.NewTaskSender(rabbit_conn)
 	taskService := services.NewTaskService(taskRepo, taskSender, config.CombForTask)
 	taskHandler := handlers.NewTaskHandler(taskService)
+
+	rabbit_conn.StartRecoveryWatcher(taskService)
 
 	log.Println("Recovering pending/queued tasks from MongoDB...")
 	taskService.ResendQueuedTasks()

@@ -290,7 +290,9 @@ func (r *MongoTaskRepo) GetQueuedTasks() ([]*models.CrackTaskRequest, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cursor, err := r.requests.Find(ctx, bson.M{"status": models.StatusQueued})
+	cursor, err := r.requests.Find(ctx, bson.M{
+		"status": bson.M{"$in": []string{models.StatusQueued, models.StatusInProgress}},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("find queued requests: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/TKaterinna/CrackHash/worker/internal/models"
 )
@@ -21,47 +22,69 @@ func NewCalcListener(rabbit_conn *RMQConnection, service *CalcService) *Listener
 }
 
 func (l *Listener) Listen(ctx context.Context) {
-	msgs, err := l.rabbit_conn.Channel.Consume(
-		"task.queue",
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Panicf("Failed to register a consumer: %s", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Listener shutting down")
-			return
-		case d, ok := <-msgs:
-			if !ok {
-				log.Println("Messages channel closed")
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Listener: shutting down")
 				return
+			default:
 			}
 
-			var req models.CrackTaskRequest
-			log.Printf("READ %s", d.Body)
-			if err := json.Unmarshal(d.Body, &req); err != nil {
-				log.Printf("Bad message: %v", err)
-				d.Nack(false, false) // сообщение отбрасывается: только оно + не возвращается в очередь
+			ch := l.rabbit_conn.GetChannel()
+			if ch == nil || ch.IsClosed() {
+				log.Println("Listener: channel not ready, waiting...")
+				time.Sleep(2 * time.Second)
 				continue
 			}
 
-			if err := l.service.Save(&req); err != nil {
-				log.Printf("Save request failed: %v", err)
-				d.Nack(false, false)
+			msgs, err := ch.Consume(
+				"task.queue",
+				"",
+				false,
+				false,
+				false,
+				false,
+				nil,
+			)
+			if err != nil {
+				log.Printf("Listener: failed to consume: %v. Retrying...", err)
+				time.Sleep(3 * time.Second)
 				continue
 			}
 
-			//ok
-			d.Ack(false)
-			log.Printf("Get task %s", req.TaskId)
+			log.Println("Listener: subscribed to task.queue")
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case d, ok := <-msgs:
+					if !ok {
+						log.Println("Listener: messages channel closed, will re-subscribe")
+						break
+					}
+
+					var req models.CrackTaskRequest
+					log.Printf("READ %s", d.Body)
+					if err := json.Unmarshal(d.Body, &req); err != nil {
+						log.Printf("Listener: bad message: %v", err)
+						d.Nack(false, false) // сообщение отбрасывается: только оно + не возвращается в очередь
+						continue
+					}
+
+					if err := l.service.Save(&req); err != nil {
+						log.Printf("Save request failed: %v", err)
+						d.Nack(false, false)
+						continue
+					}
+
+					if err := d.Ack(false); err != nil {
+						log.Printf("Listener: ack failed: %v", err)
+					}
+					log.Printf("Listener: processed task %s", req.TaskId)
+				}
+			}
 		}
-	}
+	}()
 }
