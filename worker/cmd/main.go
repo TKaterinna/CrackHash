@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/TKaterinna/CrackHash/worker/config"
 	"github.com/TKaterinna/CrackHash/worker/internal/repo"
@@ -27,9 +28,12 @@ func main() {
 
 	resultSender := services.NewResultSender(rabbit_conn)
 	calcService := services.NewCalcService(calcRepo, resultSender, config.SleepMs)
-	listener := services.NewCalcListener(rabbit_conn, calcService)
 
-	rabbit_conn.StartRecoveryWatcher()
+	rabbit_conn.StartRecoveryWatcher(func() error {
+		return nil
+	})
+
+	listener := services.NewCalcListener(rabbit_conn, calcService)
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
@@ -39,5 +43,13 @@ func main() {
 		}
 	}()
 
-	listener.Listen(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		listener.Listen(context.Background())
+	}()
+
+	wg.Wait()
+	log.Println("Stop worker")
 }

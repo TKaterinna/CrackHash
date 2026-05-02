@@ -40,7 +40,10 @@ func main() {
 	taskService := services.NewTaskService(taskRepo, taskSender, config.CombForTask)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
-	rabbit_conn.StartRecoveryWatcher(taskService)
+	rabbit_conn.StartRecoveryWatcher(func() error {
+		taskService.ResendQueuedTasks()
+		return nil
+	})
 
 	log.Println("Recovering pending/queued tasks from MongoDB...")
 	taskService.ResendQueuedTasks()

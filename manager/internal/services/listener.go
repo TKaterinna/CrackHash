@@ -22,12 +22,16 @@ func NewCalcListener(rabbit_conn *RMQConnection, service *TaskService) *Listener
 }
 
 func (l *Listener) Listen(ctx context.Context) {
+	reconNotify := l.rabbit_conn.NotifyReconnect()
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				log.Println("Listener: shutting down")
 				return
+			case <-reconNotify:
+				log.Println("Listener: reconnection detected, will re-subscribe")
 			default:
 			}
 
@@ -55,14 +59,18 @@ func (l *Listener) Listen(ctx context.Context) {
 
 			log.Println("Listener: subscribed to result.queue")
 
+		msgLoop:
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-reconNotify:
+					log.Println("Listener: reconnection signal, re-subscribing...")
+					break msgLoop
 				case d, ok := <-msgs:
 					if !ok {
 						log.Println("Listener: messages channel closed, will re-subscribe")
-						break
+						break msgLoop
 					}
 
 					var req models.CrackTaskResult

@@ -37,8 +37,13 @@ func (s *TaskService) Crack(req *models.HashCrackRequest) (uuid.UUID, error) {
 	}
 
 	go func() {
-		if err := s.taskSender.Send(tasks); err != nil {
-			log.Printf("Initial send failed for request %s: %v. Tasks remain QUEUED.", id, err)
+		seccess := s.taskSender.Send(tasks)
+		if len(seccess) > 0 {
+			s.repo.SetTasksStatusSended(id, seccess)
+		}
+
+		if len(seccess) < len(tasks) {
+			log.Printf("Initial send failed for request %s. Tasks remain QUEUED.", id)
 			return
 		}
 

@@ -10,9 +10,12 @@ import (
 )
 
 type RMQConnection struct {
-	mu      sync.RWMutex
-	Conn    *amqp.Connection
-	Channel *amqp.Channel
+	mu          sync.RWMutex
+	Conn        *amqp.Connection
+	Channel     *amqp.Channel
+	URL         string
+	reconnectCh chan struct{}
+	closeCh     chan struct{}
 }
 
 func RabbitMQConnect(rabbitMQURL string) (*RMQConnection, error) {
@@ -46,11 +49,24 @@ func RabbitMQConnect(rabbitMQURL string) (*RMQConnection, error) {
 	return &RMQConnection{
 		Conn:    conn,
 		Channel: ch,
+		URL:     rabbitMQURL,
 	}, nil
 }
 
+func (c *RMQConnection) NotifyReconnect() <-chan struct{} {
+	return c.reconnectCh
+}
+
+func (c *RMQConnection) NotifyClose() <-chan struct{} {
+	return c.closeCh
+}
+
 func (c *RMQConnection) SetupTopology() error {
-	err := c.Channel.ExchangeDeclare(
+	ch := c.GetChannel()
+	if ch == nil || ch.IsClosed() {
+		return fmt.Errorf("channel not ready, waiting...")
+	}
+	err := ch.ExchangeDeclare(
 		"manager_worker",
 		"direct",
 		true,
@@ -63,7 +79,7 @@ func (c *RMQConnection) SetupTopology() error {
 		return err
 	}
 
-	_, err = c.Channel.QueueDeclare(
+	_, err = ch.QueueDeclare(
 		"task.queue",
 		true,
 		false,
@@ -75,7 +91,7 @@ func (c *RMQConnection) SetupTopology() error {
 		return err
 	}
 
-	err = c.Channel.QueueBind(
+	err = ch.QueueBind(
 		"task.queue",
 		"task",
 		"manager_worker",
@@ -86,7 +102,7 @@ func (c *RMQConnection) SetupTopology() error {
 		return err
 	}
 
-	_, err = c.Channel.QueueDeclare(
+	_, err = ch.QueueDeclare(
 		"result.queue",
 		true,
 		false,
@@ -98,7 +114,7 @@ func (c *RMQConnection) SetupTopology() error {
 		return err
 	}
 
-	err = c.Channel.QueueBind(
+	err = ch.QueueBind(
 		"result.queue",
 		"result",
 		"manager_worker",
@@ -112,25 +128,89 @@ func (c *RMQConnection) SetupTopology() error {
 	return nil
 }
 
-func (c *RMQConnection) StartRecoveryWatcher() {
-	closeChan := c.Conn.NotifyClose(make(chan *amqp.Error))
-
+func (c *RMQConnection) StartRecoveryWatcher(onReconnect func() error) {
 	go func() {
-		for range closeChan {
-			log.Println("RabbitMQ connection lost. Waiting for recovery...")
-			for c.Conn.IsClosed() {
+		for {
+			connNotify := c.Conn.NotifyClose(make(chan *amqp.Error, 1))
+
+			c.mu.RLock()
+			ch := c.Channel
+			c.mu.RUnlock()
+
+			var chanNotify chan *amqp.Error
+			if ch != nil && !ch.IsClosed() {
+				chanNotify = ch.NotifyClose(make(chan *amqp.Error, 1))
+			}
+
+			select {
+			case err, ok := <-connNotify:
+				if !ok {
+					log.Println("Recovery watcher: connection permanently closed")
+					close(c.closeCh)
+					return
+				}
+				log.Printf("RabbitMQ connection lost: %v. Reconnecting...", err)
+			case err, ok := <-chanNotify:
+				if !ok {
+					continue
+				}
+				log.Printf("RabbitMQ channel lost: %v. Reconnecting...", err)
+			}
+
+			var newConn *amqp.Connection
+			var newCh *amqp.Channel
+			var dialErr error
+
+			for attempt := 1; attempt <= 10; attempt++ {
+				log.Printf("Reconnect attempt %d/10...", attempt)
+
+				newConn, dialErr = amqp.Dial(c.URL)
+				if dialErr == nil {
+					newCh, dialErr = newConn.Channel()
+					if dialErr == nil {
+						break
+					}
+					newConn.Close()
+				}
+				log.Printf("Reconnect failed: %v. Waiting 2s...", dialErr)
 				time.Sleep(2 * time.Second)
 			}
-			log.Println("RabbitMQ connection restored. Triggering queued tasks resend...")
 
-			if err := c.RecreateChannel(); err != nil {
-				log.Printf("Failed to recreate channel after reconnect: %v", err)
+			if dialErr != nil {
+				log.Fatalf("Failed to reconnect to RabbitMQ after 10 attempts: %v", dialErr)
+			}
+
+			c.mu.Lock()
+			oldConn, oldCh := c.Conn, c.Channel
+			c.Conn, c.Channel = newConn, newCh
+			c.mu.Unlock()
+
+			if oldCh != nil {
+				_ = oldCh.Close()
+			}
+			if oldConn != nil {
+				_ = oldConn.Close()
+			}
+
+			if err := c.SetupTopology(); err != nil {
+				log.Printf("Failed to setup topology after reconnect: %v", err)
 				continue
 			}
 
-			_ = c.SetupTopology()
+			if onReconnect != nil {
+				if err := onReconnect(); err != nil {
+					log.Printf("Failed to re-subscribe listeners: %v", err)
+				} else {
+					log.Println("Listeners re-subscribed successfully")
+				}
+			}
 
-			closeChan = c.Conn.NotifyClose(make(chan *amqp.Error))
+			select {
+			case c.reconnectCh <- struct{}{}:
+			default:
+			}
+
+			log.Println("RabbitMQ reconnected and topology restored")
 		}
 	}()
 }

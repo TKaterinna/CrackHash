@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TKaterinna/CrackHash/manager/internal/models"
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -21,74 +22,55 @@ func NewTaskSender(rabbit_conn *RMQConnection) *TaskSender {
 	}
 }
 
-func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) error {
-	var failed int
+func (t *TaskSender) Send(tasks []*models.CrackTaskRequest) []uuid.UUID {
+	var seccess []uuid.UUID
 
 	for _, task := range tasks {
-		if err := t.SendWithRetry(task, 6); err != nil {
+		if err := t.SendSingle(task); err != nil {
 			log.Printf("Failed to send task %s after retries: %v", task.TaskId, err)
-			failed++
 			continue
 		}
+
+		seccess = append(seccess, task.TaskId)
 
 		log.Printf("SENT TASK %s", task.TaskId)
 	}
 
-	if failed > 0 {
-		return fmt.Errorf("failed to send %d out of %d tasks", failed, len(tasks))
-	}
-
-	return nil
+	return seccess
 }
 
-func (t *TaskSender) SendWithRetry(task *models.CrackTaskRequest, maxRetries int) error {
+func (t *TaskSender) SendSingle(task *models.CrackTaskRequest) error {
 	taskJSON, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	baseDelay := 500 * time.Millisecond
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		ch := t.rabbit_conn.GetChannel()
-		if ch == nil || ch.IsClosed() {
-			if attempt < maxRetries-1 {
-				delay := baseDelay * time.Duration(1<<attempt)
-				log.Printf("Channel unavailable for task %s, waiting %v before retry...", task.TaskId, delay)
-				time.Sleep(delay)
-				continue
-			}
-			return fmt.Errorf("channel unavailable after %d attempts", maxRetries)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-		err = ch.PublishWithContext(
-			ctx,
-			"manager_worker",
-			"task",
-			false,
-			false,
-			amqp.Publishing{
-				ContentType:  "application/json",
-				DeliveryMode: amqp.Persistent,
-				Body:         taskJSON,
-			},
-		)
-		cancel()
-
-		if err == nil {
-			return nil
-		}
-
-		if attempt < maxRetries-1 {
-			delay := baseDelay * time.Duration(1<<attempt) // 0.5s, 1s, 2s, 4s...
-			log.Printf("Publish attempt %d failed for task %s: %v. Retrying in %v...",
-				attempt+1, task.TaskId, err, delay)
-			time.Sleep(delay)
-			continue
-		}
+	ch := t.rabbit_conn.GetChannel()
+	if ch == nil || ch.IsClosed() {
+		return fmt.Errorf("channel unavailable")
 	}
 
-	return fmt.Errorf("publish failed after %d attempts: %w", maxRetries, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = ch.PublishWithContext(
+		ctx,
+		"manager_worker",
+		"task",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         taskJSON,
+		},
+	)
+	if err != nil {
+		log.Printf("Failed to publish a message: %s", err)
+		return err
+	}
+
+	log.Printf("SENT RESULT %s", taskJSON)
+
+	return nil
 }

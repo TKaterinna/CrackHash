@@ -11,4 +11,5 @@ type TaskRepo interface {
 	UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results []string) error
 	UpdateRequestStatus(id uuid.UUID, status string) error
 	GetQueuedTasks() ([]*models.CrackTaskRequest, error)
+	SetTasksStatusSended(reqId uuid.UUID, seccess []uuid.UUID) error
 }

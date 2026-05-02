@@ -14,12 +14,12 @@ import (
 )
 
 type RequestStatusDoc struct {
-	ID         uuid.UUID       `bson:"_id"`
-	TasksCount int             `bson:"tasks_count"`
-	TasksReady map[string]bool `bson:"tasks_ready"`
-	StartTime  time.Time       `bson:"start_time"`
-	Status     string          `bson:"status"`
-	Results    []string        `bson:"results"`
+	ID         uuid.UUID      `bson:"_id"`
+	TasksCount int            `bson:"tasks_count"`
+	TasksReady map[string]int `bson:"tasks_ready"`
+	StartTime  time.Time      `bson:"start_time"`
+	Status     string         `bson:"status"`
+	Results    []string       `bson:"results"`
 }
 
 type WorkerTasksDoc struct {
@@ -92,9 +92,9 @@ func (r *MongoTaskRepo) SaveRequest(id uuid.UUID, tasks []*models.CrackTaskReque
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	tasksReady := make(map[string]bool, len(tasks))
+	tasksReady := make(map[string]int, len(tasks))
 	for _, t := range tasks {
-		tasksReady[t.TaskId.String()] = false
+		tasksReady[t.TaskId.String()] = 0
 	}
 
 	requestDoc := RequestStatusDoc{
@@ -174,12 +174,12 @@ func (r *MongoTaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results 
 	filter := bson.M{
 		"_id":                                  reqId,
 		"status":                               bson.M{"$ne": models.StatusERROR},
-		fmt.Sprintf("tasks_ready.%s", taskKey): false,
+		fmt.Sprintf("tasks_ready.%s", taskKey): bson.M{"$in": []int{0, 1}},
 	}
 
 	update := bson.M{
 		"$set": bson.M{
-			fmt.Sprintf("tasks_ready.%s", taskKey): true,
+			fmt.Sprintf("tasks_ready.%s", taskKey): 2,
 		},
 		"$inc": bson.M{
 			"tasks_count": -1,
@@ -205,7 +205,7 @@ func (r *MongoTaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results 
 				if req.Status == models.StatusERROR {
 					return fmt.Errorf("this task was canceled by timeout")
 				}
-				if req.TasksReady[taskKey] {
+				if req.TasksReady[taskKey] == 2 {
 					return fmt.Errorf("duplicated task result")
 				}
 			}
@@ -224,61 +224,6 @@ func (r *MongoTaskRepo) UpdateResult(reqId uuid.UUID, taskId uuid.UUID, results 
 	return nil
 }
 
-func (r *MongoTaskRepo) GetPendingTasks() ([]*models.CrackTaskRequest, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	cursor, err := r.requests.Find(ctx, bson.M{"status": models.StatusInProgress})
-	if err != nil {
-		return nil, fmt.Errorf("find in-progress requests: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	var pendingTasks []*models.CrackTaskRequest
-
-	for cursor.Next(ctx) {
-		var req RequestStatusDoc
-		if err := cursor.Decode(&req); err != nil {
-			log.Printf("Failed to decode request: %v", err)
-			continue
-		}
-
-		for taskIdStr, isReady := range req.TasksReady {
-			if !isReady {
-				taskId, err := uuid.Parse(taskIdStr)
-				if err != nil {
-					log.Printf("Invalid taskId in tasks_ready: %s", taskIdStr)
-					continue
-				}
-
-				var taskDoc WorkerTasksDoc
-				err = r.workerTasks.FindOne(ctx, bson.M{"_id": taskId}).Decode(&taskDoc)
-				if err != nil {
-					log.Printf("Task %s not found in worker_tasks: %v", taskId, err)
-					continue
-				}
-
-				task := &models.CrackTaskRequest{
-					TaskId:     taskDoc.ID,
-					RequestId:  req.ID,
-					StartIndex: taskDoc.StartIndex,
-					Count:      taskDoc.Count,
-					TargetHash: taskDoc.TargetHash,
-					MaxLen:     taskDoc.MaxLen,
-					Alphabet:   taskDoc.Alphabet,
-				}
-				pendingTasks = append(pendingTasks, task)
-			}
-		}
-	}
-
-	if err := cursor.Err(); err != nil {
-		return nil, err
-	}
-
-	return pendingTasks, nil
-}
-
 func (r *MongoTaskRepo) UpdateRequestStatus(id uuid.UUID, status string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -286,12 +231,45 @@ func (r *MongoTaskRepo) UpdateRequestStatus(id uuid.UUID, status string) error {
 	return err
 }
 
+func (r *MongoTaskRepo) SetTasksStatusSended(reqId uuid.UUID, success []uuid.UUID) error {
+	if len(success) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	update := bson.M{}
+
+	for _, taskID := range success {
+		key := fmt.Sprintf("tasks_ready.%s", taskID.String())
+		update["$set"] = bson.M{key: 1}
+	}
+
+	result, err := r.requests.UpdateOne(
+		ctx,
+		bson.M{"_id": reqId},
+		update,
+		options.Update().SetUpsert(false),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update tasks status for request %s: %w", reqId, err)
+	}
+
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("request %s not found in MongoDB", reqId)
+	}
+
+	log.Printf("Updated status for %d tasks in request %s", len(success), reqId)
+	return nil
+}
+
 func (r *MongoTaskRepo) GetQueuedTasks() ([]*models.CrackTaskRequest, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cursor, err := r.requests.Find(ctx, bson.M{
-		"status": bson.M{"$in": []string{models.StatusQueued, models.StatusInProgress}},
+		"status": bson.M{"$in": []string{models.StatusQueued}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("find queued requests: %w", err)
@@ -307,7 +285,7 @@ func (r *MongoTaskRepo) GetQueuedTasks() ([]*models.CrackTaskRequest, error) {
 		}
 
 		for taskIdStr, isReady := range req.TasksReady {
-			if !isReady {
+			if isReady == 0 {
 				taskId, err := uuid.Parse(taskIdStr)
 				if err != nil {
 					continue
